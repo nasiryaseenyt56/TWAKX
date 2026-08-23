@@ -1,0 +1,6 @@
+{
+  "name": "TWAKX Smart Accessories & Gadgets",
+  "description": "Premier Pakistan mobile & electronics accessories e-commerce store with catalog browsing, instant WhatsApp ordering, multi-channel checkout, cart, wishlist, compare, user accounts, and real-time admin management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
