@@ -505,52 +505,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => unsubscribeAuth();
   }, []);
 
-  // One-time automatic purge of all products and orders from database as requested
-  useEffect(() => {
-    let isCancelled = false;
-    const purgeDatabaseProductsAndOrders = async () => {
-      try {
-        // Clear all products in Firestore
-        const prodSnap = await getDocs(collection(db, 'products'));
-        if (!prodSnap.empty) {
-          const deletePromises = prodSnap.docs.map((docSnap) =>
-            deleteDoc(doc(db, 'products', docSnap.id)).catch(() => {})
-          );
-          await Promise.all(deletePromises);
-        }
-
-        // Clear all orders in Firestore
-        const orderSnap = await getDocs(collection(db, 'orders'));
-        if (!orderSnap.empty) {
-          const deletePromises = orderSnap.docs.map((docSnap) =>
-            deleteDoc(doc(db, 'orders', docSnap.id)).catch(() => {})
-          );
-          await Promise.all(deletePromises);
-        }
-
-        if (!isCancelled) {
-          setProducts([]);
-          setOrders([]);
-          setCart([]);
-          setWishlist([]);
-          setCompareList([]);
-          localStorage.setItem('twakx_products', '[]');
-          localStorage.setItem('twakx_orders', '[]');
-          localStorage.setItem('twakx_cart', '[]');
-          localStorage.setItem('twakx_wishlist', '[]');
-          localStorage.setItem('twakx_compare', '[]');
-        }
-      } catch (err) {
-        console.warn('Database products & orders cleanup:', err);
-      }
-    };
-
-    purgeDatabaseProductsAndOrders();
-    return () => {
-      isCancelled = true;
-    };
-  }, []);
-
   // Firestore sync for Products
   useEffect(() => {
     try {
@@ -563,11 +517,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             snapshot.forEach((docSnap) => {
               firestoreProducts.push(sanitizeProduct({ id: docSnap.id, ...docSnap.data() }));
             });
+            setProducts(firestoreProducts);
+          } else {
+            // Check if there are local products saved in localStorage before setting empty
+            try {
+              const saved = localStorage.getItem('twakx_products');
+              if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                  setProducts(parsed.map(sanitizeProduct));
+                  return;
+                }
+              }
+            } catch {
+              // Ignore
+            }
+            setProducts([]);
           }
-          setProducts(firestoreProducts);
         },
         (error) => {
-          handleFirestoreError(error, OperationType.LIST, 'products');
+          console.warn('Products sync notice:', error);
         }
       );
       return () => unsubscribe();

@@ -21,11 +21,26 @@ export const HomePage: React.FC = () => {
 
   const featuredProducts = products.filter((p) => p.featured);
   const bestSellers = products.filter((p) => p.bestSeller);
-  const earbuds = products.filter((p) => p.category === 'Wireless Earbuds');
-  const watches = products.filter((p) => p.category === 'Smart Watches');
-  const powerAndChargers = products.filter(
-    (p) => p.category === 'Chargers & Cables' || p.category === 'Power Banks'
+  
+  // Resilient category matches
+  const earbuds = products.filter(
+    (p) => p.category?.toLowerCase().includes('earbud') || p.category === 'Wireless Earbuds'
   );
+  const watches = products.filter(
+    (p) => p.category?.toLowerCase().includes('watch') || p.category === 'Smart Watches'
+  );
+  const powerAndChargers = products.filter(
+    (p) =>
+      p.category?.toLowerCase().includes('charger') ||
+      p.category?.toLowerCase().includes('cable') ||
+      p.category?.toLowerCase().includes('power') ||
+      p.category === 'Chargers & Cables' ||
+      p.category === 'Power Banks'
+  );
+
+  // Fallback to show any products if specific flags aren't set
+  const displayDeals = featuredProducts.length > 0 ? featuredProducts : products;
+  const displayBestSellers = bestSellers.length > 0 ? bestSellers : products.slice(0, 8);
 
   const navigateToCategory = (categoryName: string) => {
     setFilterState((prev) => ({ ...prev, category: categoryName, searchQuery: '' }));
@@ -42,35 +57,37 @@ export const HomePage: React.FC = () => {
       <CategoryGrid />
 
       {/* 3. Featured Products / Flash Deals Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-6">
-          <div>
-            <div className="flex items-center gap-1.5 text-xs font-bold text-amber-600 uppercase tracking-wider">
-              <Flame className="w-4 h-4 text-amber-500 fill-amber-500" />
-              <span>Trending Across Pakistan</span>
+      {displayDeals.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-6">
+            <div>
+              <div className="flex items-center gap-1.5 text-xs font-bold text-amber-600 uppercase tracking-wider">
+                <Flame className="w-4 h-4 text-amber-500 fill-amber-500" />
+                <span>Trending Across Pakistan</span>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1 tracking-tight">
+                Featured Products & Deals
+              </h2>
             </div>
-            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1 tracking-tight">
-              Featured Products & Deals
-            </h2>
+            <button
+              onClick={() => {
+                setFilterState((prev) => ({ ...prev, category: 'all' }));
+                setCurrentPage('shop');
+              }}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 group self-start sm:self-auto"
+            >
+              <span>Explore All Deals ({products.length})</span>
+              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+            </button>
           </div>
-          <button
-            onClick={() => {
-              setFilterState((prev) => ({ ...prev, category: 'all' }));
-              setCurrentPage('shop');
-            }}
-            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 group self-start sm:self-auto"
-          >
-            <span>Explore All Deals</span>
-            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-          </button>
-        </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
-          {featuredProducts.slice(0, 4).map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
-      </section>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
+            {displayDeals.slice(0, 8).map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 4. Promotional Banner (Pakistan Express Guarantee) */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6">
@@ -194,25 +211,27 @@ export const HomePage: React.FC = () => {
       )}
 
       {/* 8. Best Sellers & Customer Favorites */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 bg-slate-50 rounded-3xl p-6 sm:p-8 border border-slate-200/80">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 uppercase tracking-wider">
-              <Award className="w-4 h-4 text-indigo-500" />
-              <span>Customer Favorites</span>
+      {displayBestSellers.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 bg-slate-50 rounded-3xl p-6 sm:p-8 border border-slate-200/80">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 uppercase tracking-wider">
+                <Award className="w-4 h-4 text-indigo-500" />
+                <span>Customer Favorites</span>
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black text-slate-900 mt-1 tracking-tight">
+                Best Selling Accessories
+              </h2>
             </div>
-            <h2 className="text-xl sm:text-2xl font-black text-slate-900 mt-1 tracking-tight">
-              Best Selling Accessories
-            </h2>
           </div>
-        </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
-          {bestSellers.slice(0, 4).map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
-      </section>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
+            {displayBestSellers.slice(0, 4).map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 9. Verified Customer Reviews */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6">
