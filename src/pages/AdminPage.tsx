@@ -156,48 +156,90 @@ export const AdminPage: React.FC = () => {
     { label: 'Car Mount & Charger', url: 'https://images.unsplash.com/photo-1585338107529-13afc5f02586?w=800&auto=format&fit=crop&q=80' },
   ];
 
-  // Direct Image File Upload Handler
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Direct Image File Upload Handler with automatic client-side compression
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
     setIsImageUploading(true);
-    setImageUploadStatus(`Processing ${files.length} image(s)...`);
+    setImageUploadStatus(`Optimizing and processing ${files.length} image(s)...`);
 
     const fileList: File[] = Array.from(files);
-    let loadedCount = 0;
-    const newBase64Images: string[] = [];
+    const newOptimizedImages: string[] = [];
 
-    fileList.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          newBase64Images.push(event.target.result as string);
+    const compressImage = (file: File): Promise<string> => {
+      return new Promise((resolve) => {
+        if (!file.type.startsWith('image/') || file.type === 'image/svg+xml') {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve((ev.target?.result as string) || '');
+          reader.onerror = () => resolve('');
+          reader.readAsDataURL(file);
+          return;
         }
-        loadedCount++;
-        if (loadedCount === fileList.length) {
-          setProductForm((prev) => {
-            const currentImages = prev.images || [];
-            return {
-              ...prev,
-              images: [...currentImages, ...newBase64Images],
-            };
-          });
-          setIsImageUploading(false);
-          setImageUploadStatus(`✓ Uploaded ${newBase64Images.length} direct image(s)!`);
-          setTimeout(() => setImageUploadStatus(null), 3000);
-        }
-      };
-      reader.onerror = () => {
-        loadedCount++;
-        if (loadedCount === fileList.length) {
-          setIsImageUploading(false);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
 
-    e.target.value = '';
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const img = new Image();
+          img.onload = () => {
+            let width = img.width;
+            let height = img.height;
+            const maxDimension = 1080;
+
+            if (width > maxDimension || height > maxDimension) {
+              if (width > height) {
+                height = Math.round((height * maxDimension) / width);
+                width = maxDimension;
+              } else {
+                width = Math.round((width * maxDimension) / height);
+                height = maxDimension;
+              }
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              resolve((ev.target?.result as string) || '');
+              return;
+            }
+
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.82);
+            resolve(compressed);
+          };
+          img.onerror = () => {
+            resolve((ev.target?.result as string) || '');
+          };
+          img.src = (ev.target?.result as string) || '';
+        };
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(file);
+      });
+    };
+
+    try {
+      for (const file of fileList) {
+        const compressed = await compressImage(file);
+        if (compressed) {
+          newOptimizedImages.push(compressed);
+        }
+      }
+
+      if (newOptimizedImages.length > 0) {
+        setProductForm((prev) => ({
+          ...prev,
+          images: [...(prev.images || []), ...newOptimizedImages],
+        }));
+        setImageUploadStatus(`✓ Uploaded ${newOptimizedImages.length} optimized image(s)!`);
+      }
+    } catch (err) {
+      console.error('Image processing error:', err);
+    } finally {
+      setIsImageUploading(false);
+      setTimeout(() => setImageUploadStatus(null), 3000);
+      e.target.value = '';
+    }
   };
 
   const handleAddCustomUrl = () => {
@@ -441,8 +483,9 @@ export const AdminPage: React.FC = () => {
 
   const handleConfirmDelete = async () => {
     if (deletingProduct) {
-      await deleteProduct(deletingProduct.id);
+      const prodId = deletingProduct.id;
       setDeletingProduct(null);
+      await deleteProduct(prodId);
     }
   };
 
@@ -2243,7 +2286,7 @@ export const AdminPage: React.FC = () => {
 
             {/* Modal Bottom Stepper Bar */}
             <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-              <div>
+              <div className="flex items-center gap-2">
                 {modalStep !== 'basic' && (
                   <button
                     type="button"
@@ -2257,6 +2300,23 @@ export const AdminPage: React.FC = () => {
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
                     <span>Back</span>
+                  </button>
+                )}
+
+                {editingProduct && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const toDelete = editingProduct;
+                      setIsProductModalOpen(false);
+                      setEditingProduct(null);
+                      setDeletingProduct(toDelete);
+                    }}
+                    className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold rounded-xl text-xs flex items-center gap-1 transition-colors"
+                    title="Delete this product"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
                   </button>
                 )}
               </div>

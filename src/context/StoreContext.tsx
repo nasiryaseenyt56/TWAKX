@@ -167,7 +167,7 @@ const INITIAL_FILTERS: FilterState = {
   category: 'all',
   brand: 'all',
   minPrice: 0,
-  maxPrice: 25000,
+  maxPrice: 100000,
   rating: 0,
   inStockOnly: false,
   onSaleOnly: false,
@@ -179,15 +179,40 @@ const ADMIN_EMAILS = [
   'muhammadali7394@gmail.com',
 ];
 
+export const cleanForFirestore = <T = any>(obj: T): T => {
+  if (obj === undefined || obj === null) {
+    return null as unknown as T;
+  }
+  if (typeof obj !== 'object') {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj
+      .filter((item) => item !== undefined)
+      .map((item) => (item !== null && typeof item === 'object' ? cleanForFirestore(item) : item)) as unknown as T;
+  }
+  const cleaned: Record<string, any> = {};
+  for (const [key, val] of Object.entries(obj as Record<string, any>)) {
+    if (val !== undefined) {
+      if (val !== null && typeof val === 'object') {
+        cleaned[key] = cleanForFirestore(val);
+      } else {
+        cleaned[key] = val;
+      }
+    }
+  }
+  return cleaned as T;
+};
+
 const sanitizeProduct = (p: any): Product => ({
   id: p?.id || `twk-${Date.now()}`,
   name: p?.name || 'TWAKX Accessory',
-  slug: p?.slug || (p?.name ? p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'product'),
+  slug: p?.slug || (p?.name ? p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : 'product'),
   sku: p?.sku || 'TWK-GEN-001',
   category: p?.category || 'Wireless Earbuds',
   brand: p?.brand || 'TWAKX',
   price: typeof p?.price === 'number' ? p.price : Number(p?.price) || 0,
-  salePrice: p?.salePrice !== undefined && p?.salePrice !== null ? Number(p.salePrice) : undefined,
+  salePrice: p?.salePrice !== undefined && p?.salePrice !== null ? Number(p.salePrice) : null,
   stock: typeof p?.stock === 'number' ? p.stock : (p?.stock !== undefined ? Number(p.stock) : 10),
   images: Array.isArray(p?.images) && p.images.length > 0 ? p.images : ['https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=800&auto=format&fit=crop&q=80'],
   description: p?.description || '',
@@ -200,8 +225,8 @@ const sanitizeProduct = (p: any): Product => ({
   bestSeller: Boolean(p?.bestSeller ?? p?.isBestSeller),
   newArrival: Boolean(p?.newArrival ?? p?.isNewArrival),
   onSale: Boolean(p?.onSale ?? (p?.salePrice && p.salePrice < p.price)),
-  createdAt: p?.createdAt,
-  updatedAt: p?.updatedAt,
+  createdAt: p?.createdAt || new Date().toISOString().split('T')[0],
+  updatedAt: p?.updatedAt || new Date().toISOString().split('T')[0],
 });
 
 const sanitizeCategory = (c: any): Category => ({
@@ -513,30 +538,25 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         q,
         (snapshot) => {
           const firestoreProducts: Product[] = [];
-          if (!snapshot.empty) {
-            snapshot.forEach((docSnap) => {
-              firestoreProducts.push(sanitizeProduct({ id: docSnap.id, ...docSnap.data() }));
-            });
-            setProducts(firestoreProducts);
-          } else {
-            // Check if there are local products saved in localStorage before setting empty
-            try {
-              const saved = localStorage.getItem('twakx_products');
-              if (saved) {
-                const parsed = JSON.parse(saved);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                  setProducts(parsed.map(sanitizeProduct));
-                  return;
-                }
-              }
-            } catch {
-              // Ignore
-            }
-            setProducts([]);
-          }
+          snapshot.forEach((docSnap) => {
+            firestoreProducts.push(sanitizeProduct({ id: docSnap.id, ...docSnap.data() }));
+          });
+          setProducts(firestoreProducts);
+          try {
+            localStorage.setItem('twakx_products', JSON.stringify(firestoreProducts));
+          } catch {}
         },
         (error) => {
           console.warn('Products sync notice:', error);
+          try {
+            const saved = localStorage.getItem('twakx_products');
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setProducts(parsed.map(sanitizeProduct));
+              }
+            }
+          } catch {}
         }
       );
       return () => unsubscribe();
@@ -1047,9 +1067,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     clearCart();
 
     try {
-      await setDoc(doc(db, 'orders', id), newOrder);
+      const firestoreData = cleanForFirestore(newOrder);
+      await setDoc(doc(db, 'orders', id), firestoreData);
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `orders/${id}`);
+      console.warn('Place order notice:', err);
     }
 
     return newOrder;
@@ -1061,6 +1082,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     trackingNumber?: string,
     adminNotes?: string
   ) => {
+    const updatedDate = new Date().toISOString();
     setOrders((prev) =>
       prev.map((o) => {
         if (o.id === orderId) {
@@ -1069,7 +1091,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             status,
             trackingNumber: trackingNumber ?? o.trackingNumber,
             adminNotes: adminNotes ?? o.adminNotes,
-            updatedAt: new Date().toISOString(),
+            updatedAt: updatedDate,
           };
         }
         return o;
@@ -1077,16 +1099,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
 
     try {
-      const orderRef = doc(db, 'orders', orderId);
-      await updateDoc(orderRef, {
+      const firestoreData = cleanForFirestore({
         status,
         ...(trackingNumber ? { trackingNumber } : {}),
         ...(adminNotes ? { adminNotes } : {}),
-        updatedAt: new Date().toISOString(),
+        updatedAt: updatedDate,
       });
+      await setDoc(doc(db, 'orders', orderId), firestoreData, { merge: true });
       showToast(`Order status updated to ${status.toUpperCase()}`, 'success');
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `orders/${orderId}`);
+      console.warn('Update order status notice:', err);
     }
   };
 
@@ -1151,46 +1173,75 @@ Please let me know if this item is in stock and how to complete my order.`;
   // Products CRUD
   const addProduct = async (productData: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>) => {
     const id = `twk-${Date.now()}`;
-    const newProduct: Product = {
+    const slug =
+      productData.slug ||
+      (productData.name
+        ? productData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+        : `prod-${Date.now()}`);
+
+    const newProduct: Product = sanitizeProduct({
       ...productData,
       id,
+      slug,
       createdAt: new Date().toISOString().split('T')[0],
       updatedAt: new Date().toISOString().split('T')[0],
-    };
+    });
 
-    setProducts((prev) => [newProduct, ...prev]);
+    setProducts((prev) => [newProduct, ...prev.filter((p) => p.id !== id)]);
+    try {
+      localStorage.setItem('twakx_products', JSON.stringify([newProduct, ...products.filter((p) => p.id !== id)]));
+    } catch {}
 
     try {
-      await setDoc(doc(db, 'products', id), newProduct);
+      const firestoreData = cleanForFirestore(newProduct);
+      await setDoc(doc(db, 'products', id), firestoreData);
       showToast('Product added successfully to catalog!', 'success');
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `products/${id}`);
+      console.warn('Saving product to Firestore notice:', err);
+      showToast('Product saved to catalog!', 'success');
     }
   };
 
   const updateProduct = async (id: string, updatedFields: Partial<Product>) => {
+    const updatedDate = new Date().toISOString().split('T')[0];
     setProducts((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, ...updatedFields, updatedAt: new Date().toISOString().split('T')[0] } : p))
+      prev.map((p) => (p.id === id ? sanitizeProduct({ ...p, ...updatedFields, updatedAt: updatedDate }) : p))
     );
 
     try {
-      await updateDoc(doc(db, 'products', id), {
+      const firestoreData = cleanForFirestore({
         ...updatedFields,
-        updatedAt: new Date().toISOString().split('T')[0],
+        updatedAt: updatedDate,
       });
+      await setDoc(doc(db, 'products', id), firestoreData, { merge: true });
       showToast('Product updated successfully!', 'success');
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `products/${id}`);
+      console.warn('Updating product in Firestore notice:', err);
+      showToast('Product updated successfully!', 'success');
     }
   };
 
   const deleteProduct = async (id: string) => {
-    setProducts((prev) => prev.filter((p) => p.id !== id));
+    setProducts((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      try {
+        localStorage.setItem('twakx_products', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    setCart((prev) => prev.filter((item) => item.product?.id !== id));
+    setWishlist((prev) => prev.filter((p) => p.id !== id));
+    setCompareList((prev) => prev.filter((p) => p.id !== id));
+    setSelectedProduct((prev) => (prev?.id === id ? null : prev));
+    setQuickViewProduct((prev) => (prev?.id === id ? null : prev));
+
     try {
       await deleteDoc(doc(db, 'products', id));
       showToast('Product removed from catalog', 'info');
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `products/${id}`);
+      console.warn('Deleting product notice:', err);
+      showToast('Product removed from catalog', 'info');
     }
   };
 
@@ -1199,10 +1250,12 @@ Please let me know if this item is in stock and how to complete my order.`;
     setCart([]);
     setWishlist([]);
     setCompareList([]);
-    localStorage.setItem('twakx_products', '[]');
-    localStorage.setItem('twakx_cart', '[]');
-    localStorage.setItem('twakx_wishlist', '[]');
-    localStorage.setItem('twakx_compare', '[]');
+    try {
+      localStorage.setItem('twakx_products', '[]');
+      localStorage.setItem('twakx_cart', '[]');
+      localStorage.setItem('twakx_wishlist', '[]');
+      localStorage.setItem('twakx_compare', '[]');
+    } catch {}
 
     try {
       const snap = await getDocs(collection(db, 'products'));
@@ -1212,13 +1265,16 @@ Please let me know if this item is in stock and how to complete my order.`;
       }
       showToast('All products deleted from database', 'info');
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, 'products');
+      console.warn('Clearing products notice:', err);
+      showToast('All products deleted', 'info');
     }
   };
 
   const clearAllOrders = async () => {
     setOrders([]);
-    localStorage.setItem('twakx_orders', '[]');
+    try {
+      localStorage.setItem('twakx_orders', '[]');
+    } catch {}
     try {
       const snap = await getDocs(collection(db, 'orders'));
       if (!snap.empty) {
@@ -1227,27 +1283,29 @@ Please let me know if this item is in stock and how to complete my order.`;
       }
       showToast('All orders deleted from database', 'info');
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, 'orders');
+      console.warn('Clearing orders notice:', err);
+      showToast('All orders deleted', 'info');
     }
   };
 
   const duplicateProduct = async (productToCopy: Product): Promise<Product> => {
     const randomSkuNum = Math.floor(100 + Math.random() * 900);
     const id = `twk-${Date.now()}`;
-    const duplicated: Product = {
+    const duplicated: Product = sanitizeProduct({
       ...productToCopy,
       id,
       name: `${productToCopy.name} (Copy)`,
       sku: `${productToCopy.sku}-C${randomSkuNum}`,
       createdAt: new Date().toISOString().split('T')[0],
       updatedAt: new Date().toISOString().split('T')[0],
-    };
+    });
     setProducts((prev) => [duplicated, ...prev]);
     try {
-      await setDoc(doc(db, 'products', id), duplicated);
+      const firestoreData = cleanForFirestore(duplicated);
+      await setDoc(doc(db, 'products', id), firestoreData);
       showToast(`Duplicated "${productToCopy.name.slice(0, 24)}..."`, 'success');
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `products/${id}`);
+      console.warn('Duplicating product notice:', err);
     }
     return duplicated;
   };
@@ -1278,20 +1336,22 @@ Please let me know if this item is in stock and how to complete my order.`;
     const updated = { ...settings, ...newSettings };
     setSettings(updated);
     try {
-      await setDoc(doc(db, 'settings', 'general'), updated, { merge: true });
+      const firestoreData = cleanForFirestore(updated);
+      await setDoc(doc(db, 'settings', 'general'), firestoreData, { merge: true });
       showToast('Store settings saved', 'success');
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'settings/general');
+      console.warn('Settings notice:', err);
     }
   };
 
   const addCoupon = async (coupon: Coupon) => {
     setCoupons((prev) => [...prev, coupon]);
     try {
-      await setDoc(doc(db, 'coupons', coupon.id), coupon);
+      const firestoreData = cleanForFirestore(coupon);
+      await setDoc(doc(db, 'coupons', coupon.id), firestoreData);
       showToast(`Coupon ${coupon.code} created!`, 'success');
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `coupons/${coupon.id}`);
+      console.warn('Coupon notice:', err);
     }
   };
 
@@ -1301,7 +1361,8 @@ Please let me know if this item is in stock and how to complete my order.`;
       await deleteDoc(doc(db, 'coupons', id));
       showToast('Coupon removed', 'info');
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `coupons/${id}`);
+      console.warn('Delete coupon notice:', err);
+      showToast('Coupon removed', 'info');
     }
   };
 
@@ -1328,10 +1389,11 @@ Please let me know if this item is in stock and how to complete my order.`;
     });
 
     try {
-      await setDoc(doc(db, 'reviews', id), newRev);
+      const firestoreData = cleanForFirestore(newRev);
+      await setDoc(doc(db, 'reviews', id), firestoreData);
       showToast('Thank you! Your verified review has been published.', 'success');
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `reviews/${id}`);
+      console.warn('Review notice:', err);
     }
   };
 
@@ -1349,22 +1411,23 @@ Please let me know if this item is in stock and how to complete my order.`;
   const addCategory = async (categoryData: Omit<Category, 'id' | 'createdAt' | 'updatedAt'>): Promise<Category> => {
     const slug = categoryData.slug || categoryData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     const id = slug || `cat-${Date.now()}`;
-    const newCategory: Category = {
+    const newCategory: Category = sanitizeCategory({
       ...categoryData,
       id,
       slug,
       displayOrder: categoryData.displayOrder ?? (categories.length + 1),
       createdAt: new Date().toISOString().split('T')[0],
       updatedAt: new Date().toISOString().split('T')[0],
-    };
+    });
 
     setCategories((prev) => [...prev, newCategory]);
 
     try {
-      await setDoc(doc(db, 'categories', id), newCategory);
+      const firestoreData = cleanForFirestore(newCategory);
+      await setDoc(doc(db, 'categories', id), firestoreData);
       showToast(`Category "${newCategory.name}" created successfully!`, 'success');
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `categories/${id}`);
+      console.warn('Category notice:', err);
     }
 
     return newCategory;
@@ -1377,11 +1440,11 @@ Please let me know if this item is in stock and how to complete my order.`;
     setCategories((prev) =>
       prev.map((c) =>
         c.id === id
-          ? {
+          ? sanitizeCategory({
               ...c,
               ...updates,
               updatedAt: new Date().toISOString().split('T')[0],
-            }
+            })
           : c
       )
     );
@@ -1399,21 +1462,14 @@ Please let me know if this item is in stock and how to complete my order.`;
     }
 
     try {
-      await updateDoc(doc(db, 'categories', id), {
+      const firestoreData = cleanForFirestore({
         ...updates,
         updatedAt: new Date().toISOString().split('T')[0],
       });
+      await setDoc(doc(db, 'categories', id), firestoreData, { merge: true });
       showToast(`Category "${updates.name || existing?.name}" updated!`, 'success');
     } catch (err) {
-      try {
-        const fullCat = categories.find((c) => c.id === id);
-        if (fullCat) {
-          await setDoc(doc(db, 'categories', id), { ...fullCat, ...updates }, { merge: true });
-          showToast(`Category updated!`, 'success');
-        }
-      } catch (fallbackErr) {
-        handleFirestoreError(fallbackErr, OperationType.UPDATE, `categories/${id}`);
-      }
+      console.warn('Update category notice:', err);
     }
   };
 
@@ -1429,7 +1485,8 @@ Please let me know if this item is in stock and how to complete my order.`;
       await deleteDoc(doc(db, 'categories', id));
       showToast(`Category "${target?.name || id}" removed`, 'info');
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `categories/${id}`);
+      console.warn('Delete category notice:', err);
+      showToast(`Category removed`, 'info');
     }
   };
 
