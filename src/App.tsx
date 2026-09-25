@@ -5,6 +5,7 @@
 
 import React, { useEffect } from 'react';
 import { StoreProvider, useStore } from './context/StoreContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
 import { FloatingWhatsApp } from './components/FloatingWhatsApp';
@@ -33,7 +34,7 @@ import { TermsPage } from './pages/TermsPage';
 import { BlogPage } from './pages/BlogPage';
 
 const AppContent: React.FC = () => {
-  const { currentPage } = useStore();
+  const { currentPage, toasts, removeToast } = useStore();
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -108,14 +109,40 @@ const AppContent: React.FC = () => {
 
       {/* Pakistani WhatsApp Instant Support Widget */}
       <FloatingWhatsApp />
+
+      {/* Floating Toast Notification Stack */}
+      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm pointer-events-none">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`pointer-events-auto p-3.5 rounded-2xl shadow-xl border text-xs font-semibold flex items-center justify-between gap-3 animate-in slide-in-from-top duration-150 ${
+              toast.type === 'error'
+                ? 'bg-rose-900 text-rose-50 border-rose-800'
+                : toast.type === 'info'
+                ? 'bg-slate-900 text-slate-100 border-slate-800'
+                : 'bg-emerald-900 text-emerald-50 border-emerald-800'
+            }`}
+          >
+            <span>{toast.message}</span>
+            <button
+              onClick={() => removeToast(toast.id)}
+              className="text-white/70 hover:text-white text-xs font-bold px-1"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
 
 export default function App() {
   return (
-    <StoreProvider>
-      <AppContent />
-    </StoreProvider>
+    <ErrorBoundary>
+      <StoreProvider>
+        <AppContent />
+      </StoreProvider>
+    </ErrorBoundary>
   );
 }

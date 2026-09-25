@@ -48,10 +48,17 @@ export const ProductDetailPage: React.FC = () => {
   const [reviewComment, setReviewComment] = useState('');
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
 
-  if (!selectedProduct) {
+  // Auto-resolve product if null
+  const product = selectedProduct || products[0];
+
+  if (!product) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-16 text-center">
-        <h2 className="text-xl font-bold text-slate-800">No product selected</h2>
+      <div className="max-w-7xl mx-auto px-4 py-20 text-center space-y-4">
+        <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
+          <Package className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-800">Catalog Loading...</h2>
+        <p className="text-xs text-slate-500">Connecting to product catalog.</p>
         <button
           onClick={() => setCurrentPage('shop')}
           className="mt-4 bg-slate-900 text-white text-xs font-bold px-6 py-2.5 rounded-full"
@@ -61,8 +68,6 @@ export const ProductDetailPage: React.FC = () => {
       </div>
     );
   }
-
-  const product = selectedProduct;
   const currentPrice = product.salePrice ?? product.price;
   const discountPercent = product.salePrice
     ? Math.round(((product.price - product.salePrice) / product.price) * 100)

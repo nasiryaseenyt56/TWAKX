@@ -179,6 +179,41 @@ const ADMIN_EMAILS = [
   'muhammadali7394@gmail.com',
 ];
 
+// Safe localStorage access helpers that NEVER crash or throw
+export const safeGetLocalStorage = <T = any>(key: string, defaultValue: T): T => {
+  if (typeof window === 'undefined') return defaultValue;
+  try {
+    const item = localStorage.getItem(key);
+    if (!item) return defaultValue;
+    const parsed = JSON.parse(item);
+    return parsed !== null && parsed !== undefined ? parsed : defaultValue;
+  } catch (e) {
+    console.warn(`SafeLocalStorage read notice (${key}):`, e);
+    return defaultValue;
+  }
+};
+
+export const safeSetLocalStorage = (key: string, value: any): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    console.warn(`SafeLocalStorage write notice (${key}):`, e);
+    try {
+      if (key === 'twakx_products' && Array.isArray(value)) {
+        // Strip out massive base64 previews to protect storage quota
+        const trimmed = value.map((p) => ({
+          ...p,
+          images: Array.isArray(p.images)
+            ? p.images.map((img: string) => (typeof img === 'string' && img.length > 50000 ? img.slice(0, 100) : img))
+            : [],
+        }));
+        localStorage.setItem(key, JSON.stringify(trimmed));
+      }
+    } catch {}
+  }
+};
+
 export const cleanForFirestore = <T = any>(obj: T): T => {
   if (obj === undefined || obj === null) {
     return null as unknown as T;
@@ -205,20 +240,22 @@ export const cleanForFirestore = <T = any>(obj: T): T => {
 };
 
 const sanitizeProduct = (p: any): Product => ({
-  id: p?.id || `twk-${Date.now()}`,
-  name: p?.name || 'TWAKX Accessory',
-  slug: p?.slug || (p?.name ? p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : 'product'),
-  sku: p?.sku || 'TWK-GEN-001',
-  category: p?.category || 'Wireless Earbuds',
-  brand: p?.brand || 'TWAKX',
+  id: String(p?.id || `twk-${Date.now()}`),
+  name: String(p?.name || 'TWAKX Accessory'),
+  slug: String(p?.slug || (p?.name ? p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : 'product')),
+  sku: String(p?.sku || 'TWK-GEN-001'),
+  category: String(p?.category || 'Wireless Earbuds'),
+  brand: String(p?.brand || 'TWAKX'),
   price: typeof p?.price === 'number' ? p.price : Number(p?.price) || 0,
   salePrice: p?.salePrice !== undefined && p?.salePrice !== null ? Number(p.salePrice) : null,
   stock: typeof p?.stock === 'number' ? p.stock : (p?.stock !== undefined ? Number(p.stock) : 10),
-  images: Array.isArray(p?.images) && p.images.length > 0 ? p.images : ['https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=800&auto=format&fit=crop&q=80'],
-  description: p?.description || '',
-  shortDescription: p?.shortDescription || '',
-  highlights: Array.isArray(p?.highlights) ? p.highlights : [],
-  specs: p?.specs || {},
+  images: Array.isArray(p?.images) && p.images.length > 0
+    ? p.images.filter(Boolean)
+    : ['https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=800&auto=format&fit=crop&q=80'],
+  description: String(p?.description || ''),
+  shortDescription: String(p?.shortDescription || ''),
+  highlights: Array.isArray(p?.highlights) ? p.highlights.filter(Boolean) : [],
+  specs: p?.specs && typeof p?.specs === 'object' ? p.specs : {},
   rating: typeof p?.rating === 'number' ? p.rating : 5,
   reviewCount: typeof p?.reviewCount === 'number' ? p.reviewCount : 0,
   featured: Boolean(p?.featured ?? p?.isFeatured),
@@ -230,12 +267,12 @@ const sanitizeProduct = (p: any): Product => ({
 });
 
 const sanitizeCategory = (c: any): Category => ({
-  id: c?.id || `cat-${Date.now()}`,
-  name: c?.name || 'Category',
-  slug: c?.slug || (c?.name ? c.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : 'category'),
-  icon: c?.icon || 'Sparkles',
-  image: c?.image || 'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=600&auto=format&fit=crop&q=80',
-  description: c?.description || '',
+  id: String(c?.id || `cat-${Date.now()}`),
+  name: String(c?.name || 'Category'),
+  slug: String(c?.slug || (c?.name ? c.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : 'category')),
+  icon: String(c?.icon || 'Sparkles'),
+  image: String(c?.image || 'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=600&auto=format&fit=crop&q=80'),
+  description: String(c?.description || ''),
   isFeatured: Boolean(c?.isFeatured ?? true),
   displayOrder: typeof c?.displayOrder === 'number' ? c.displayOrder : 0,
   createdAt: c?.createdAt,
@@ -250,86 +287,59 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isCartDrawerOpen, setIsCartDrawerOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
 
-  // Products, Categories & Settings
+  // Products, Categories & Settings with Safe Storage Fallbacks
   const [products, setProducts] = useState<Product[]>(() => {
-    try {
-      const saved = localStorage.getItem('twakx_products');
-      if (!saved) return [];
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) ? parsed.map(sanitizeProduct) : [];
-    } catch {
-      return [];
-    }
+    const saved = safeGetLocalStorage<any[]>('twakx_products', []);
+    return Array.isArray(saved) && saved.length > 0 ? saved.map(sanitizeProduct) : [];
   });
 
   const [categories, setCategories] = useState<Category[]>(() => {
-    try {
-      const saved = localStorage.getItem('twakx_categories');
-      if (!saved) return INITIAL_CATEGORIES.map(sanitizeCategory);
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) && parsed.length > 0 ? parsed.map(sanitizeCategory) : INITIAL_CATEGORIES.map(sanitizeCategory);
-    } catch {
-      return INITIAL_CATEGORIES.map(sanitizeCategory);
-    }
+    const saved = safeGetLocalStorage<any[]>('twakx_categories', INITIAL_CATEGORIES);
+    return Array.isArray(saved) && saved.length > 0 ? saved.map(sanitizeCategory) : INITIAL_CATEGORIES.map(sanitizeCategory);
   });
 
   const [settings, setSettings] = useState<StoreSettings>(() => {
-    const saved = localStorage.getItem('twakx_settings');
-    return saved ? JSON.parse(saved) : INITIAL_SETTINGS;
+    return safeGetLocalStorage<StoreSettings>('twakx_settings', INITIAL_SETTINGS);
   });
 
   const [coupons, setCoupons] = useState<Coupon[]>(() => {
-    const saved = localStorage.getItem('twakx_coupons');
-    return saved ? JSON.parse(saved) : INITIAL_COUPONS;
+    return safeGetLocalStorage<Coupon[]>('twakx_coupons', INITIAL_COUPONS);
   });
 
   const [reviews, setReviews] = useState<Review[]>(() => {
-    const saved = localStorage.getItem('twakx_reviews');
-    return saved ? JSON.parse(saved) : INITIAL_REVIEWS;
+    return safeGetLocalStorage<Review[]>('twakx_reviews', INITIAL_REVIEWS);
   });
 
   const [orders, setOrders] = useState<Order[]>(() => {
-    try {
-      const saved = localStorage.getItem('twakx_orders');
-      if (!saved) return [];
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
+    const saved = safeGetLocalStorage<Order[]>('twakx_orders', []);
+    return Array.isArray(saved) ? saved : [];
   });
 
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
 
   // Cart, Wishlist, Compare
   const [cart, setCart] = useState<CartItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('twakx_cart');
-      if (!saved) return [];
-      const parsed = JSON.parse(saved);
-      if (!Array.isArray(parsed)) return [];
-      return parsed
-        .filter((item) => item && item.product && item.product.id)
-        .map((item) => ({
-          ...item,
-          product: sanitizeProduct(item.product),
-          quantity: Math.max(1, Number(item.quantity) || 1),
-        }));
-    } catch {
-      return [];
-    }
+    const saved = safeGetLocalStorage<any[]>('twakx_cart', []);
+    if (!Array.isArray(saved)) return [];
+    return saved
+      .filter((item) => item && item.product && item.product.id)
+      .map((item) => ({
+        ...item,
+        product: sanitizeProduct(item.product),
+        quantity: Math.max(1, Number(item.quantity) || 1),
+      }));
   });
 
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
 
   const [wishlist, setWishlist] = useState<string[]>(() => {
-    const saved = localStorage.getItem('twakx_wishlist');
-    return saved ? JSON.parse(saved) : [];
+    const saved = safeGetLocalStorage<string[]>('twakx_wishlist', []);
+    return Array.isArray(saved) ? saved : [];
   });
 
   const [compareList, setCompareList] = useState<string[]>(() => {
-    const saved = localStorage.getItem('twakx_compare');
-    return saved ? JSON.parse(saved) : [];
+    const saved = safeGetLocalStorage<string[]>('twakx_compare', []);
+    return Array.isArray(saved) ? saved : [];
   });
 
   const [filterState, setFilterState] = useState<FilterState>(INITIAL_FILTERS);
@@ -338,7 +348,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [adminPinUnlocked, setAdminPinUnlocked] = useState<boolean>(() => {
-    return localStorage.getItem('twakx_admin_unlocked') === 'true';
+    return safeGetLocalStorage<string>('twakx_admin_unlocked', 'false') === 'true';
   });
 
   // Toasts
@@ -356,55 +366,58 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Sync to LocalStorage
+  // Synchronize state changes to LocalStorage safely
   useEffect(() => {
-    localStorage.setItem('twakx_cart', JSON.stringify(cart));
+    safeSetLocalStorage('twakx_cart', cart);
   }, [cart]);
 
   useEffect(() => {
-    localStorage.setItem('twakx_wishlist', JSON.stringify(wishlist));
+    safeSetLocalStorage('twakx_wishlist', wishlist);
   }, [wishlist]);
 
   useEffect(() => {
-    localStorage.setItem('twakx_compare', JSON.stringify(compareList));
+    safeSetLocalStorage('twakx_compare', compareList);
   }, [compareList]);
 
   useEffect(() => {
-    localStorage.setItem('twakx_products', JSON.stringify(products));
+    if (products.length > 0) {
+      safeSetLocalStorage('twakx_products', products);
+    }
   }, [products]);
 
   useEffect(() => {
-    localStorage.setItem('twakx_categories', JSON.stringify(categories));
+    if (categories.length > 0) {
+      safeSetLocalStorage('twakx_categories', categories);
+    }
   }, [categories]);
 
   useEffect(() => {
-    localStorage.setItem('twakx_settings', JSON.stringify(settings));
+    safeSetLocalStorage('twakx_settings', settings);
   }, [settings]);
 
   useEffect(() => {
-    localStorage.setItem('twakx_coupons', JSON.stringify(coupons));
+    safeSetLocalStorage('twakx_coupons', coupons);
   }, [coupons]);
 
   useEffect(() => {
-    localStorage.setItem('twakx_reviews', JSON.stringify(reviews));
+    safeSetLocalStorage('twakx_reviews', reviews);
   }, [reviews]);
 
   useEffect(() => {
-    localStorage.setItem('twakx_orders', JSON.stringify(orders));
+    safeSetLocalStorage('twakx_orders', orders);
   }, [orders]);
 
   useEffect(() => {
-    localStorage.setItem('twakx_admin_unlocked', adminPinUnlocked ? 'true' : 'false');
+    safeSetLocalStorage('twakx_admin_unlocked', adminPinUnlocked ? 'true' : 'false');
   }, [adminPinUnlocked]);
 
-  // URL route parser for direct links, reloads, and 404 detection
+  // Robust URL route parser
   const parseUrlRoute = useCallback((productList: Product[]) => {
     if (typeof window === 'undefined') return;
     try {
-      const pathname = window.location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
       const params = new URLSearchParams(window.location.search);
       const hash = window.location.hash.replace(/^#/, '').toLowerCase();
-      const pageKey = (params.get('page') || params.get('p') || hash || pathname).replace(/^\/+/, '');
+      const pageKey = (params.get('page') || params.get('p') || hash || '').toLowerCase();
       const prodId = params.get('id') || params.get('productId') || params.get('sku');
       const prodSlug = params.get('slug');
 
@@ -412,7 +425,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         '': 'home',
         'home': 'home',
         'index': 'home',
-        'index.html': 'home',
         'shop': 'shop',
         'products': 'shop',
         'catalog': 'shop',
@@ -448,11 +460,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         'not-found': 'not-found',
       };
 
+      // Check product direct link
       if (prodId || prodSlug) {
         const found = productList.find(
           (p) =>
             (prodId && (p.id === prodId || p.sku.toLowerCase() === prodId.toLowerCase())) ||
-            (prodSlug && p.slug === prodSlug)
+            (prodSlug && p.slug.toLowerCase() === prodSlug.toLowerCase())
         );
         if (found) {
           setSelectedProduct(found);
@@ -463,13 +476,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       if (pageKey && routeMap[pageKey]) {
         setCurrentPage(routeMap[pageKey]);
-      } else if (pathname && routeMap[pathname]) {
-        setCurrentPage(routeMap[pathname]);
-      } else if (pathname && pathname !== '' && !routeMap[pathname]) {
-        setCurrentPage('not-found');
       }
     } catch {
-      // Fallback to home
+      // Fallback without throwing
     }
   }, []);
 
@@ -485,7 +494,31 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => window.removeEventListener('popstate', handlePopState);
   }, [parseUrlRoute, products]);
 
-  // Keep browser URL updated cleanly when navigating pages
+  // If products loaded and user is on product-detail but selectedProduct is null, recover it
+  useEffect(() => {
+    if (currentPage === 'product-detail' && !selectedProduct && products.length > 0) {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const prodId = params.get('id') || params.get('productId') || params.get('sku');
+        const prodSlug = params.get('slug');
+        if (prodId || prodSlug) {
+          const found = products.find(
+            (p) =>
+              (prodId && (p.id === prodId || p.sku.toLowerCase() === prodId.toLowerCase())) ||
+              (prodSlug && p.slug.toLowerCase() === prodSlug.toLowerCase())
+          );
+          if (found) {
+            setSelectedProduct(found);
+            return;
+          }
+        }
+        // Fallback: pick the first product or go back to shop
+        setSelectedProduct(products[0]);
+      } catch {}
+    }
+  }, [currentPage, selectedProduct, products]);
+
+  // Keep browser URL query string updated without triggering reload or SecurityError
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
@@ -493,9 +526,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (currentPage === 'home') {
         url.searchParams.delete('page');
         url.searchParams.delete('id');
-      } else if (currentPage === 'product-detail' && selectedProduct) {
+      } else if (currentPage === 'product-detail') {
         url.searchParams.set('page', 'product-detail');
-        url.searchParams.set('id', selectedProduct.id);
+        if (selectedProduct) {
+          url.searchParams.set('id', selectedProduct.id);
+        }
       } else if (currentPage !== 'not-found' && currentPage !== '404') {
         url.searchParams.set('page', currentPage);
         url.searchParams.delete('id');
@@ -504,11 +539,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         window.history.replaceState(null, '', url.pathname + (url.search ? url.search : '') + url.hash);
       }
     } catch {
-      // URL update fallback
+      // Safe fallback
     }
   }, [currentPage, selectedProduct]);
 
-  // Auth listener and Firestore test
+  // Auth listener and Firestore connection test
   useEffect(() => {
     testFirestoreConnection();
 
@@ -541,27 +576,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           snapshot.forEach((docSnap) => {
             firestoreProducts.push(sanitizeProduct({ id: docSnap.id, ...docSnap.data() }));
           });
-          setProducts(firestoreProducts);
-          try {
-            localStorage.setItem('twakx_products', JSON.stringify(firestoreProducts));
-          } catch {}
+          if (firestoreProducts.length > 0) {
+            setProducts(firestoreProducts);
+            safeSetLocalStorage('twakx_products', firestoreProducts);
+          }
         },
         (error) => {
           console.warn('Products sync notice:', error);
-          try {
-            const saved = localStorage.getItem('twakx_products');
-            if (saved) {
-              const parsed = JSON.parse(saved);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setProducts(parsed.map(sanitizeProduct));
-              }
-            }
-          } catch {}
+          const saved = safeGetLocalStorage<any[]>('twakx_products', []);
+          if (Array.isArray(saved) && saved.length > 0) {
+            setProducts(saved.map(sanitizeProduct));
+          }
         }
       );
       return () => unsubscribe();
     } catch {
-      // Offline fallback
+      // Safe offline fallback
     }
   }, []);
 
@@ -580,16 +610,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             if (firestoreCats.length > 0) {
               firestoreCats.sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
               setCategories(firestoreCats);
+              safeSetLocalStorage('twakx_categories', firestoreCats);
             }
           }
         },
         (error) => {
-          handleFirestoreError(error, OperationType.LIST, 'categories');
+          console.warn('Categories sync notice:', error);
         }
       );
       return () => unsubscribe();
     } catch {
-      // Offline fallback
+      // Safe offline fallback
     }
   }, []);
 
@@ -607,18 +638,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             });
           }
           setOrders(firestoreOrders);
+          safeSetLocalStorage('twakx_orders', firestoreOrders);
         },
         (error) => {
-          handleFirestoreError(error, OperationType.LIST, 'orders');
+          console.warn('Orders sync notice:', error);
         }
       );
       return () => unsubscribe();
     } catch {
-      // Fallback
+      // Safe fallback
     }
   }, []);
 
-  // Admin Check
+  // Admin Access Check
   const isAdmin =
     adminPinUnlocked ||
     (user !== null && ADMIN_EMAILS.includes(user.email || '')) ||
@@ -633,24 +665,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     } catch (err: unknown) {
       const authError = err as { code?: string; message?: string };
-      // Ignore user-initiated popup cancellations gracefully
       if (
         authError?.code === 'auth/popup-closed-by-user' ||
         authError?.code === 'auth/cancelled-popup-request' ||
         authError?.message?.includes('popup-closed-by-user') ||
         authError?.message?.includes('cancelled-popup-request')
       ) {
-        // User closed or dismissed the Google sign-in window - no action needed
         return;
       }
 
       if (authError?.code === 'auth/popup-blocked') {
-        showToast('Sign-in popup was blocked by your browser. Please allow popups and try again.', 'info');
-        return;
-      }
-
-      if (authError?.code === 'auth/network-request-failed') {
-        showToast('Network error during sign-in. Please check your connection and retry.', 'error');
+        showToast('Sign-in popup was blocked by browser. Please allow popups and retry.', 'info');
         return;
       }
 
@@ -667,7 +692,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return { success: false, error: 'Please enter both email and password.' };
     }
 
-    // Check if it matches admin credentials
     const isEmailAdmin =
       cleanEmail.toLowerCase() === 'muhammadali7394@gmail.com' ||
       cleanEmail.toLowerCase() === 'nasiryaseen2011@gmail.com' ||
@@ -730,7 +754,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           displayName: cleanName,
         });
 
-        // Initialize user document in Firestore
         const newUserProfile: UserProfile = {
           uid: userCred.user.uid,
           email: cleanEmail,
@@ -782,7 +805,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     if (isEmailAdmin && isPassAdmin) {
       setAdminPinUnlocked(true);
-      localStorage.setItem('twakx_admin_unlocked', 'true');
+      safeSetLocalStorage('twakx_admin_unlocked', 'true');
       setUserProfile({
         uid: 'admin-muhammad-ali',
         email: 'muhammadali7394@gmail.com',
@@ -801,7 +824,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       await firebaseSignOut(auth);
       setAdminPinUnlocked(false);
-      localStorage.removeItem('twakx_admin_unlocked');
+      safeSetLocalStorage('twakx_admin_unlocked', 'false');
       setUserProfile(null);
       showToast('Logged out successfully', 'info');
     } catch (err) {
@@ -990,33 +1013,33 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return products.filter((p) => {
       if (filterState.searchQuery) {
         const queryLower = filterState.searchQuery.toLowerCase();
-        const matchesName = p.name.toLowerCase().includes(queryLower);
-        const matchesCategory = p.category.toLowerCase().includes(queryLower);
-        const matchesBrand = p.brand.toLowerCase().includes(queryLower);
-        const matchesSku = p.sku.toLowerCase().includes(queryLower);
+        const matchesName = (p.name || '').toLowerCase().includes(queryLower);
+        const matchesCategory = (p.category || '').toLowerCase().includes(queryLower);
+        const matchesBrand = (p.brand || '').toLowerCase().includes(queryLower);
+        const matchesSku = (p.sku || '').toLowerCase().includes(queryLower);
         if (!matchesName && !matchesCategory && !matchesBrand && !matchesSku) {
           return false;
         }
       }
 
-      if (filterState.category !== 'all' && p.category.toLowerCase() !== filterState.category.toLowerCase()) {
+      if (filterState.category !== 'all' && (p.category || '').toLowerCase() !== filterState.category.toLowerCase()) {
         return false;
       }
 
-      if (filterState.brand !== 'all' && p.brand.toLowerCase() !== filterState.brand.toLowerCase()) {
+      if (filterState.brand !== 'all' && (p.brand || '').toLowerCase() !== filterState.brand.toLowerCase()) {
         return false;
       }
 
-      const activePrice = p.salePrice ?? p.price;
+      const activePrice = p.salePrice ?? p.price ?? 0;
       if (activePrice < filterState.minPrice || activePrice > filterState.maxPrice) {
         return false;
       }
 
-      if (filterState.rating > 0 && p.rating < filterState.rating) {
+      if (filterState.rating > 0 && (p.rating || 0) < filterState.rating) {
         return false;
       }
 
-      if (filterState.inStockOnly && p.stock <= 0) {
+      if (filterState.inStockOnly && (p.stock || 0) <= 0) {
         return false;
       }
 
@@ -1026,8 +1049,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       return true;
     }).sort((a, b) => {
-      const priceA = a.salePrice ?? a.price;
-      const priceB = b.salePrice ?? b.price;
+      const priceA = a.salePrice ?? a.price ?? 0;
+      const priceB = b.salePrice ?? b.price ?? 0;
 
       switch (filterState.sortBy) {
         case 'price-low':
@@ -1035,7 +1058,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         case 'price-high':
           return priceB - priceA;
         case 'rating':
-          return b.rating - a.rating;
+          return (b.rating || 0) - (a.rating || 0);
         case 'newest':
           return (b.createdAt || '').localeCompare(a.createdAt || '');
         case 'best-selling':
@@ -1155,7 +1178,7 @@ Please confirm my order.`;
   const generateQuickWhatsAppProductUrl = (product: Product, quantity = 1): string => {
     const phone = settings.whatsappNumber.replace(/[^0-9]/g, '');
     const cleanPhone = phone.startsWith('0') ? '92' + phone.slice(1) : phone;
-    const price = product.salePrice ?? product.price;
+    const price = product.salePrice ?? product.price ?? 0;
 
     const message = `Hello TWAKX,
 
@@ -1188,9 +1211,6 @@ Please let me know if this item is in stock and how to complete my order.`;
     });
 
     setProducts((prev) => [newProduct, ...prev.filter((p) => p.id !== id)]);
-    try {
-      localStorage.setItem('twakx_products', JSON.stringify([newProduct, ...products.filter((p) => p.id !== id)]));
-    } catch {}
 
     try {
       const firestoreData = cleanForFirestore(newProduct);
@@ -1222,17 +1242,10 @@ Please let me know if this item is in stock and how to complete my order.`;
   };
 
   const deleteProduct = async (id: string) => {
-    setProducts((prev) => {
-      const next = prev.filter((p) => p.id !== id);
-      try {
-        localStorage.setItem('twakx_products', JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-
+    setProducts((prev) => prev.filter((p) => p.id !== id));
     setCart((prev) => prev.filter((item) => item.product?.id !== id));
-    setWishlist((prev) => prev.filter((p) => p.id !== id));
-    setCompareList((prev) => prev.filter((p) => p.id !== id));
+    setWishlist((prev) => prev.filter((p) => p !== id));
+    setCompareList((prev) => prev.filter((p) => p !== id));
     setSelectedProduct((prev) => (prev?.id === id ? null : prev));
     setQuickViewProduct((prev) => (prev?.id === id ? null : prev));
 
@@ -1250,12 +1263,10 @@ Please let me know if this item is in stock and how to complete my order.`;
     setCart([]);
     setWishlist([]);
     setCompareList([]);
-    try {
-      localStorage.setItem('twakx_products', '[]');
-      localStorage.setItem('twakx_cart', '[]');
-      localStorage.setItem('twakx_wishlist', '[]');
-      localStorage.setItem('twakx_compare', '[]');
-    } catch {}
+    safeSetLocalStorage('twakx_products', []);
+    safeSetLocalStorage('twakx_cart', []);
+    safeSetLocalStorage('twakx_wishlist', []);
+    safeSetLocalStorage('twakx_compare', []);
 
     try {
       const snap = await getDocs(collection(db, 'products'));
@@ -1272,9 +1283,8 @@ Please let me know if this item is in stock and how to complete my order.`;
 
   const clearAllOrders = async () => {
     setOrders([]);
-    try {
-      localStorage.setItem('twakx_orders', '[]');
-    } catch {}
+    safeSetLocalStorage('twakx_orders', []);
+
     try {
       const snap = await getDocs(collection(db, 'orders'));
       if (!snap.empty) {
@@ -1345,11 +1355,17 @@ Please let me know if this item is in stock and how to complete my order.`;
   };
 
   const addCoupon = async (coupon: Coupon) => {
-    setCoupons((prev) => [...prev, coupon]);
+    const couponId = coupon.id || `cpn-${Date.now()}`;
+    const completeCoupon: Coupon = {
+      ...coupon,
+      id: couponId,
+      description: coupon.description || `${coupon.discountValue}${coupon.discountType === 'percentage' ? '%' : ' PKR'} OFF`,
+    };
+    setCoupons((prev) => [...prev, completeCoupon]);
     try {
-      const firestoreData = cleanForFirestore(coupon);
-      await setDoc(doc(db, 'coupons', coupon.id), firestoreData);
-      showToast(`Coupon ${coupon.code} created!`, 'success');
+      const firestoreData = cleanForFirestore(completeCoupon);
+      await setDoc(doc(db, 'coupons', couponId), firestoreData);
+      showToast(`Coupon ${completeCoupon.code} created!`, 'success');
     } catch (err) {
       console.warn('Coupon notice:', err);
     }
@@ -1376,7 +1392,7 @@ Please let me know if this item is in stock and how to complete my order.`;
     };
     setReviews((prev) => [newRev, ...prev]);
 
-    // update product rating count
+    // Update product rating count
     const productReviews = reviews.filter((r) => r.productId === reviewData.productId);
     const newAvg = (
       (productReviews.reduce((sum, r) => sum + r.rating, 0) + reviewData.rating) /
@@ -1391,7 +1407,7 @@ Please let me know if this item is in stock and how to complete my order.`;
     try {
       const firestoreData = cleanForFirestore(newRev);
       await setDoc(doc(db, 'reviews', id), firestoreData);
-      showToast('Thank you! Your verified review has been published.', 'success');
+      showToast('Thank you! Your review has been published.', 'success');
     } catch (err) {
       console.warn('Review notice:', err);
     }
@@ -1449,7 +1465,6 @@ Please let me know if this item is in stock and how to complete my order.`;
       )
     );
 
-    // If category name was renamed, update linked products so they stay linked!
     if (updates.name && oldName && updates.name !== oldName) {
       const updatedProducts = products.map((p) =>
         p.category === oldName ? { ...p, category: updates.name! } : p

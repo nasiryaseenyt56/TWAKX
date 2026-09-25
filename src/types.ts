@@ -75,11 +75,13 @@ export interface Order {
   customerId?: string | null;
   customerName: string;
   customerPhone: string;
-  customerWhatsApp: string;
+  customerWhatsApp?: string;
   customerEmail?: string;
   city: string;
+  customerCity?: string;
   province?: string;
   address: string;
+  customerAddress?: string;
   postalCode?: string;
   orderNotes?: string;
   items: OrderItem[];
@@ -91,7 +93,7 @@ export interface Order {
   paymentMethod: PaymentMethod;
   paymentStatus?: string;
   status: OrderStatus;
-  trackingNumber: string;
+  trackingNumber?: string;
   adminNotes?: string;
   createdAt: string;
   updatedAt?: string;
@@ -133,13 +135,13 @@ export interface StoreSettings {
 }
 
 export interface Coupon {
-  id: string;
+  id?: string;
   code: string;
   discountType: 'percentage' | 'fixed';
   discountValue: number;
   minOrderAmount: number;
   isActive: boolean;
-  description: string;
+  description?: string;
 }
 
 export interface Review {
@@ -149,7 +151,8 @@ export interface Review {
   userEmail?: string;
   rating: number;
   comment: string;
-  verifiedPurchase: boolean;
+  verifiedPurchase?: boolean;
+  verified?: boolean;
   createdAt: string;
 }
 

@@ -1147,7 +1147,7 @@ export const AdminPage: React.FC = () => {
                     const matchesNum = o.orderNumber?.toLowerCase().includes(q);
                     const matchesName = o.customerName?.toLowerCase().includes(q);
                     const matchesPhone = o.customerPhone?.toLowerCase().includes(q);
-                    const matchesCity = o.customerCity?.toLowerCase().includes(q);
+                    const matchesCity = (o.customerCity || o.city || '')?.toLowerCase().includes(q);
                     if (!matchesNum && !matchesName && !matchesPhone && !matchesCity) return false;
                   }
                   return true;
@@ -1201,7 +1201,7 @@ export const AdminPage: React.FC = () => {
                         <p className="font-semibold text-slate-800">{order.customerName}</p>
                         <p className="text-slate-600 font-mono">{order.customerPhone}</p>
                         <p className="text-slate-600">{order.customerEmail}</p>
-                        <p className="text-slate-500 mt-1">{order.customerAddress}, {order.customerCity}</p>
+                        <p className="text-slate-500 mt-1">{order.customerAddress || order.address}, {order.customerCity || order.city}</p>
                       </div>
 
                       {/* Items Ordered */}
